@@ -20,10 +20,50 @@ const ImageDepthMap = ({
 }) => {
   const containerRef = useRef()
   const [preloadedImages, setPreloadedImages] = useState(false);
+  const [showLoader, setShowLoader] = useState(true);
+  const [imageAspect, setImageAspect] = useState(null);
+  const [sketchReady, setSketchReady] = useState(false);
 
   useEffect(() => {
+    setShowLoader(true);
+    setSketchReady(false);
+    const startTime = Date.now();
+    const minLoadTime = 300; // Minimum 300ms to show loader
+    
+    // Preload original image to get aspect ratio for loader
+    const aspectImg = new Image();
+    aspectImg.src = originalImg;
+    aspectImg.onload = () => {
+      setImageAspect(aspectImg.naturalHeight / aspectImg.naturalWidth);
+    };
+    
     loadImages([originalImg, depthImg], (images) => {
-      setPreloadedImages(images);
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(0, minLoadTime - elapsed);
+      
+      setTimeout(() => {
+        setPreloadedImages(images);
+        // Wait for Sketch to initialize before hiding loader
+        setTimeout(() => {
+          // Check if canvas exists in the container
+          const checkCanvas = () => {
+            if (containerRef.current) {
+              const canvas = containerRef.current.querySelector('canvas');
+              if (canvas) {
+                setSketchReady(true);
+                // Small delay to ensure canvas is rendering
+                setTimeout(() => {
+                  setShowLoader(false);
+                }, 50);
+              } else {
+                // Canvas not ready yet, check again
+                requestAnimationFrame(checkCanvas);
+              }
+            }
+          };
+          checkCanvas();
+        }, 100);
+      }, remainingTime);
     });
   }, [originalImg, depthImg])
 
@@ -60,7 +100,7 @@ const ImageDepthMap = ({
   }
 
   return (
-    <div ref={containerRef} className={`image-DepthMap${className ? ' ' + className : ''}`} style={style ? style : {}}>
+    <div ref={containerRef} className={`image-DepthMap${className ? ' ' + className : ''}`} style={{ position: 'relative', width: '100%', height: '100%', minHeight: '100px', minWidth: '100px', ...style }}>
       {preloadedImages ? <Sketch
         container={containerRef.current}
         imageOriginal={preloadedImages[0]}
@@ -75,80 +115,51 @@ const ImageDepthMap = ({
         rotationAmountX={rotationAmountX}
         rotationAmountY={rotationAmountY}
         onPermissionChange={handlePermissionChange}
-      /> : (
-        <Loader />
-      )}
+      /> : null}
+      {showLoader && <Loader containerRef={containerRef} imageAspect={imageAspect} />}
     </div>
   )
 }
 
-const Loader = () => {
+const Loader = ({ containerRef, imageAspect }) => {
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (!containerRef?.current || !imageAspect) return;
+
+    const updateSize = () => {
+      const width = containerRef.current.offsetWidth;
+      const height = width * imageAspect; // Same calculation as Sketch component
+      setContainerSize({ width, height });
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, [containerRef, imageAspect]);
+
+  if (!imageAspect || containerSize.width === 0) {
+    return null;
+  }
+
   return (
-      <svg viewBox="0 0 100 100" style={{
-        position: "fixed",
-        top: "50%",
-        left: "50%",
-        transform: "translate(-50%, -50%)",
-        height: "150px",
-        width: "150px",
-      }}>
-        <g fill="none" stroke="#fff" strokeLinecap="round" strokeLinejoin="round" strokeWidth="6">
-          <path d="M 21 40 V 59">
-            <animateTransform
-                attributeName="transform"
-                attributeType="XML"
-                type="rotate"
-                values="0 21 59; 180 21 59"
-                dur="2s"
-                repeatCount="indefinite" />
-          </path>
-          <path d="M 79 40 V 59">
-            <animateTransform
-                attributeName="transform"
-                attributeType="XML"
-                type="rotate"
-                values="0 79 59; -180 79 59"
-                dur="2s"
-                repeatCount="indefinite" />
-          </path>
-          <path d="M 50 21 V 40">
-            <animate
-                attributeName="d"
-                values="M 50 21 V 40; M 50 59 V 40"
-                dur="2s"
-                repeatCount="indefinite" />
-          </path>
-          <path d="M 50 60 V 79">
-            <animate
-                attributeName="d"
-                values="M 50 60 V 79; M 50 98 V 79"
-                dur="2s"
-                repeatCount="indefinite" />
-          </path>
-          <path d="M 50 21 L 79 40 L 50 60 L 21 40 Z">
-            <animate
-                attributeName="stroke"
-                values="rgba(255,255,255,1); rgba(100,100,100,0)"
-                dur="2s"
-                repeatCount="indefinite" />
-          </path>
-          <path d="M 50 40 L 79 59 L 50 79 L 21 59 Z"/>
-          <path d="M 50 59 L 79 78 L 50 98 L 21 78 Z">
-            <animate
-                attributeName="stroke"
-                values="rgba(100,100,100,0); rgba(255,255,255,1)"
-                dur="2s"
-                repeatCount="indefinite" />
-          </path>
-          <animateTransform
-              attributeName="transform"
-              attributeType="XML"
-              type="translate"
-              values="0 0; 0 -19"
-              dur="2s"
-              repeatCount="indefinite" />
-        </g>
-      </svg>
+    <div style={{
+      position: "absolute",
+      top: 0,
+      left: 0,
+      width: `${containerSize.width}px`,
+      height: `${containerSize.height}px`,
+    }}>
+      <img 
+        src="/portrait.webp" 
+        alt="" 
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+        }}
+      />
+    </div>
   );
 }
 

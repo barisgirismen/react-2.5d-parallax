@@ -1,10 +1,52 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { isIOS, isMobile } from 'react-device-detect'
-import fragment from 'raw-loader!glslify-loader!./shaders/fragment.glsl'
-import vertex from 'raw-loader!glslify-loader!./shaders/vertex.glsl'
-import GyroNorm from './lib/gyronorm'
 
-const gn = new GyroNorm.GyroNorm()
+// Simple device detection (client-side only)
+const isMobile = typeof window !== 'undefined' && (
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+  (window.innerWidth <= 768 && 'ontouchstart' in window)
+)
+
+const isIOS = typeof window !== 'undefined' && (
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+)
+
+// Shader sources loaded as raw strings
+const fragment = `#ifdef GL_ES
+  precision mediump float;
+#endif
+
+uniform vec4 resolution;
+uniform vec2 mouse;
+uniform vec2 threshold;
+uniform float time;
+uniform float pixelRatio;
+uniform sampler2D image0;
+uniform sampler2D image1;
+
+
+vec2 mirrored(vec2 v) {
+  vec2 m = mod(v,2.);
+  return mix(m,2.0 - m, step(1.0 ,m));
+}
+
+void main() {
+  // uvs and textures
+  vec2 uv = pixelRatio*gl_FragCoord.xy / resolution.xy ;
+  vec2 vUv = (uv - vec2(0.5))*resolution.zw + vec2(0.5);
+  vUv.y = 1. - vUv.y;
+  vec4 tex1 = texture2D(image1,mirrored(vUv));
+  vec2 fake3d = vec2(vUv.x + (tex1.r - 0.5)*mouse.x/threshold.x, vUv.y + (tex1.r - 0.5)*mouse.y/threshold.y);
+  gl_FragColor = texture2D(image0,mirrored(fake3d));
+}`
+
+const vertex = `attribute vec2 a_position;
+
+void main() {
+  gl_Position = vec4( a_position, 0, 1 );
+}`
+
+let gn = null
 
 const Sketch = ({
     container,
@@ -222,30 +264,42 @@ const Sketch = ({
         container.removeEventListener('touchstart', getPermission)
     }
 
-    const gyro = () => {
-        const maxTiltX = rotationAmountX
-        const maxTiltY = rotationAmountY
+    const gyro = async () => {
+        if (typeof window === 'undefined') return
+        
+        try {
+            // Dynamically import GyroNorm only on client side
+            if (!gn) {
+                const GyroNorm = (await import('./lib/gyronorm')).default
+                gn = new GyroNorm.GyroNorm()
+            }
+            
+            const maxTiltX = rotationAmountX
+            const maxTiltY = rotationAmountY
 
-        gn.init({ gravityNormalized: useGravity }).then(() => {
-            gn.start(data => {
-                const y = data.do.gamma * rotationCoefY;
-                const x = data.do.beta * rotationCoefX;
+            gn.init({ gravityNormalized: useGravity }).then(() => {
+                gn.start(data => {
+                    const y = data.do.gamma * rotationCoefY;
+                    const x = data.do.beta * rotationCoefX;
 
-                if (initialGyroX === 0 && initialGyroY === 0) {
-                    initialGyroX = x;
-                    initialGyroY = y;
-                }
+                    if (initialGyroX === 0 && initialGyroY === 0) {
+                        initialGyroX = x;
+                        initialGyroY = y;
+                    }
 
-                const adjustedX = x - initialGyroX;
-                const adjustedY = y - initialGyroY;
+                    const adjustedX = x - initialGyroX;
+                    const adjustedY = y - initialGyroY;
 
-                mouseTargetY = clamp(adjustedX, -maxTiltX, maxTiltX) / maxTiltX;
-                mouseTargetX = -clamp(adjustedY, -maxTiltY, maxTiltY) / maxTiltY;
+                    mouseTargetY = clamp(adjustedX, -maxTiltX, maxTiltX) / maxTiltX;
+                    mouseTargetX = -clamp(adjustedY, -maxTiltY, maxTiltY) / maxTiltY;
 
+                })
+            }).catch(e => {
+                console.debug('gyroscope on this device is not supported')
             })
-        }).catch(e => {
-            console.debug('gyroscope on this device is not supported')
-        })
+        } catch (e) {
+            console.debug('Failed to load gyronorm:', e)
+        }
     }
 
     const deviceMove = e => {
