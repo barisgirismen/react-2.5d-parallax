@@ -1,3 +1,5 @@
+<!-- README.md is not up-to-date
+
 # React Depth Map Component
 React component that implements depth maps, adding a 3D effect to 2D images
 
@@ -42,3 +44,4 @@ import ImageDepthMap from 'react-depth-map'
 | reverseMotion | Boolean      |  true, false | false |
 | respondTo | String  | mouseMove, scrollOnX, scrollOnY, scrollOnBoth | mouseMove |
 
+-->
